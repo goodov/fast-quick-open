@@ -182,7 +182,13 @@ async function goNotices(): Promise<Notice[]> {
 }
 
 function npmNotices(): Notice[] {
-  const dirs = run('pnpm', ['ls', '--prod', '--depth', 'Infinity', '--parseable'])
+  const dirs = run('pnpm', [
+    'ls',
+    '--prod',
+    '--depth',
+    'Infinity',
+    '--parseable',
+  ])
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l && path.resolve(l) !== ROOT);
