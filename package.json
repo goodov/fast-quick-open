@@ -3,7 +3,7 @@
   "displayName": "Fast Quick Open",
   "description": "A fast, persistent file picker for large workspaces, powered by fd and fzf",
   "publisher": "goodov",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/goodov/fast-quick-open"
