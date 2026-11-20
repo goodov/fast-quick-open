@@ -18,6 +18,17 @@
     "onStartupFinished"
   ],
   "main": "./dist/extension.js",
+  "files": [
+    "dist/extension.js",
+    "bin/*/fd",
+    "bin/*/fd.exe",
+    "bin/*/fzf",
+    "bin/*/fzf.exe",
+    "CHANGELOG.md",
+    "LICENSE.md",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "contributes": {
     "commands": [
       {
