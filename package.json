@@ -3,7 +3,7 @@
   "displayName": "Fast Quick Open",
   "description": "Quick Open with fzf",
   "publisher": "goodov",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/goodov/fast-quick-open"
