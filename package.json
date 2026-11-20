@@ -1,7 +1,7 @@
 {
   "name": "fast-quick-open",
   "displayName": "Fast Quick Open",
-  "description": "Quick Open with fzf",
+  "description": "A fast, persistent file picker for large workspaces, powered by fd and fzf",
   "publisher": "goodov",
   "version": "1.1.0",
   "license": "MIT",
@@ -51,17 +51,17 @@
           "type": "array",
           "items": {
             "type": "string",
-            "description": "Root directory path or path variable. Relative directories are resolved against each workspace folder."
+            "description": "Directory to index. Relative paths start from each workspace folder."
           },
           "default": [
             "."
           ],
-          "markdownDescription": "fd **base** directories for the default index (one fd process per resolved root; relative entries resolve against each workspace folder). A root nested inside another configured root still gets its own fd base, excluded from the parent so files aren't duplicated. See [path variables](https://github.com/goodov/fast-quick-open#path-variables) for supported `${...}` values, and `#fastQuickOpen.exclude#` / `#fastQuickOpen.include#` for filtering.",
+          "markdownDescription": "Directories covered by the normal file index. Relative paths resolve from each workspace folder, so the default `.` means the whole workspace. A nested root is indexed separately without duplicating its files in the parent. [Path variables](https://github.com/goodov/fast-quick-open#path-variables) are supported; use `#fastQuickOpen.exclude#` and `#fastQuickOpen.include#` to narrow the index.",
           "scope": "resource"
         },
         "fastQuickOpen.include": {
           "type": "object",
-          "markdownDescription": "Directories to restore when excluded by `#fastQuickOpen.exclude#` (or files/search excludes). Map of path → `true`/`false`; relative paths resolve against each `#fastQuickOpen.roots#` entry. See [include and exclude](https://github.com/goodov/fast-quick-open#include-and-exclude).",
+          "markdownDescription": "Bring selected directories back into the normal index after they were hidden by `#fastQuickOpen.exclude#`, `#files.exclude#`, or `#search.exclude#`. Map a path to `true` to include it. Relative paths start from each `#fastQuickOpen.roots#` entry. See [include and exclude](https://github.com/goodov/fast-quick-open#include-and-exclude).",
           "default": {},
           "additionalProperties": {
             "type": "boolean",
@@ -69,13 +69,13 @@
               true,
               false
             ],
-            "description": "Whether the include path is enabled."
+            "description": "Turn this include path on or off."
           },
           "scope": "resource"
         },
         "fastQuickOpen.exclude": {
           "type": "object",
-          "markdownDescription": "Additional [glob patterns](https://aka.ms/vscode-glob-patterns) excluded from indexing and file-watcher reloads, on top of enabled `#files.exclude#` / `#search.exclude#` patterns when `#fastQuickOpen.useSearchExclude#` is enabled. Map of pattern → `true`/`false`. Conditional `files.exclude` entries using `when` are ignored. Applies to the default index only — `#fastQuickOpen.onDemand#` scopes are not excluded automatically. See [include and exclude](https://github.com/goodov/fast-quick-open#include-and-exclude) for anchoring rules.",
+          "markdownDescription": "Extra [glob patterns](https://aka.ms/vscode-glob-patterns) to leave out of the normal index. This is applied in addition to `#files.exclude#` and `#search.exclude#` when `#fastQuickOpen.useSearchExclude#` is on. Conditional `files.exclude` entries with `when` are ignored. Use `#fastQuickOpen.include#` to restore selected subdirectories. On-demand indexes have their own excludes. See [include and exclude](https://github.com/goodov/fast-quick-open#include-and-exclude).",
           "default": {},
           "additionalProperties": {
             "type": "boolean",
@@ -83,45 +83,45 @@
               true,
               false
             ],
-            "description": "Whether the glob pattern is enabled."
+            "description": "Turn this exclude pattern on or off."
           },
           "scope": "resource"
         },
         "fastQuickOpen.useSearchExclude": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Also apply boolean entries from both `#files.exclude#` and `#search.exclude#` when indexing and watching. Conditional `files.exclude` entries using `when` are ignored. See also `#fastQuickOpen.exclude#`.",
+          "markdownDescription": "Reuse the enabled `true` entries from `#files.exclude#` and `#search.exclude#`. This keeps files that VS Code already hides out of Fast Quick Open as well. Conditional `files.exclude` entries with `when` are ignored. See also `#fastQuickOpen.exclude#`.",
           "scope": "resource"
         },
         "fastQuickOpen.useWatcherExclude": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Also apply `#files.watcherExclude#` patterns when deciding whether a file create/delete event should trigger a reindex.",
+          "markdownDescription": "Ignore `#files.watcherExclude#` paths when watching for created or deleted files. Turn this off if watcher-excluded paths should trigger a Fast Quick Open refresh.",
           "scope": "resource"
         },
         "fastQuickOpen.reloadDebounceSeconds": {
           "type": "number",
           "default": 10,
           "minimum": 0,
-          "markdownDescription": "Quiet period in seconds before file-watcher notifications rebuild the index when the Quick Pick is closed. Set to `0` to keep watcher reloads pending until the Quick Pick is opened.",
+          "markdownDescription": "How many quiet seconds to wait before rebuilding the index after files are created or deleted while the picker is closed. Set to `0` to wait until the picker is opened. If the picker is already open, it refreshes immediately.",
           "scope": "resource"
         },
         "fastQuickOpen.fdHidden": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Pass fd `--hidden` to include hidden files and directories. See also `#fastQuickOpen.fdNoIgnore#` and `#fastQuickOpen.fdFlags#`.",
+          "markdownDescription": "Include hidden files and directories such as `.github`. See also `#fastQuickOpen.fdNoIgnore#` and `#fastQuickOpen.fdFlags#`.",
           "scope": "resource"
         },
         "fastQuickOpen.fdNoIgnore": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Pass fd `--no-ignore` to skip `.gitignore` and other ignore files. See also `#fastQuickOpen.fdHidden#` and `#fastQuickOpen.fdFlags#`.",
+          "markdownDescription": "Do not let `.gitignore` and other ignore files hide paths from the index. Fast Quick Open's own exclude settings still apply. See also `#fastQuickOpen.fdHidden#` and `#fastQuickOpen.fdFlags#`.",
           "scope": "resource"
         },
         "fastQuickOpen.fdPattern": {
           "type": "string",
           "default": ".",
-          "markdownDescription": "fd search [pattern](https://github.com/sharkdp/fd#pattern) (positional regex by default; add `--glob` via `#fastQuickOpen.fdFlags#` for glob syntax).",
+          "markdownDescription": "The [fd search pattern](https://github.com/sharkdp/fd#pattern) used while building the index. The default `.` matches everything. It is a regular expression unless you add `--glob` through `#fastQuickOpen.fdFlags#`.",
           "scope": "resource"
         },
         "fastQuickOpen.fdFlags": {
@@ -130,7 +130,7 @@
             "description": "fd command-line argument."
           },
           "default": [],
-          "markdownDescription": "Extra fd flags appended to the indexer command, e.g. `[\"--max-depth\", 4]`. Expands [path variables](https://github.com/goodov/fast-quick-open#path-variables). See also `#fastQuickOpen.fdPattern#` and `#fastQuickOpen.fzfFlags#`.",
+          "markdownDescription": "Extra arguments for fd, the tool that builds the file list. For example, `[\"--max-depth\", 4]` limits traversal depth. [Path variables](https://github.com/goodov/fast-quick-open#path-variables) are expanded. See also `#fastQuickOpen.fdPattern#` and `#fastQuickOpen.fzfFlags#`.",
           "scope": "resource"
         },
         "fastQuickOpen.fzfFlags": {
@@ -139,7 +139,7 @@
             "description": "fzf command-line argument."
           },
           "default": [],
-          "markdownDescription": "Extra fzf flags appended after `--scheme=path`, e.g. `[\"--tiebreak=end\"]`. Expands [path variables](https://github.com/goodov/fast-quick-open#path-variables). See also `#fastQuickOpen.fdFlags#`.",
+          "markdownDescription": "Extra arguments for fzf, the tool that ranks your query. For example, `[\"--tiebreak=end\"]` changes tie-breaking. [Path variables](https://github.com/goodov/fast-quick-open#path-variables) are expanded. See also `#fastQuickOpen.fdFlags#`.",
           "scope": "resource"
         },
         "fastQuickOpen.maxItems": {
@@ -147,7 +147,7 @@
           "default": 100,
           "minimum": 1,
           "maximum": 100,
-          "markdownDescription": "Maximum number of files shown in the picker. `#fastQuickOpen.onDemand#` scopes may override this individually.",
+          "markdownDescription": "Maximum number of matching files shown at once. Allowed range: 1–100. An on-demand scope can choose its own limit.",
           "scope": "resource"
         },
         "fastQuickOpen.prefill": {
@@ -157,19 +157,19 @@
             "description": "A prefill template. May mix literal text with variables."
           },
           "default": [],
-          "markdownDescription": "Templates to prefill `Fast Quick Open`'s (`extension.fastQuickOpen`) input with; the first that expands to a non-empty string is used. A keybinding can override this per-invocation with `\"args\": { \"prefill\": [...] }` (refills instead of cycling the selection, unless the same `args` were used to open/refill the currently shown picker). See [prefill variables](https://github.com/goodov/fast-quick-open#prefill-variables) for the supported `${...}` values.",
+          "markdownDescription": "Start the picker with useful text, such as the selected path or active file. Templates are tried in order and the first non-empty one wins. For example, `[\"${selectedFilePath}\", \"${relativeFile}\"]`. A keybinding can override this with `\"args\": { \"prefill\": [...] }`. See [prefill variables](https://github.com/goodov/fast-quick-open#prefill-variables).",
           "scope": "resource"
         },
         "fastQuickOpen.lowercaseQuery": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Lowercase the query before matching (case-insensitive), runs before `#fastQuickOpen.queryReplace#`. Disable to use fzf [smart-case](https://github.com/junegunn/fzf#search-syntax): all-lowercase stays case-insensitive; any uppercase letter makes the query case-sensitive.",
+          "markdownDescription": "Make searches case-insensitive by lowercasing the query before `#fastQuickOpen.queryReplace#`. Turn this off to use fzf [smart-case](https://github.com/junegunn/fzf#search-syntax): lowercase queries stay case-insensitive, but typing an uppercase letter makes the query case-sensitive.",
           "scope": "resource"
         },
         "fastQuickOpen.queryReplace": {
           "type": "array",
           "default": [],
-          "markdownDescription": "Regex rewrite rules applied to the query before matching, after `#fastQuickOpen.lowercaseQuery#` (so keep `find` lowercase while that's on). Rules run in top-level declaration order. Plain rules apply wherever they appear; the first matching group runs in full, later groups are skipped, and later plain rules still run. The rewritten query is what `#fastQuickOpen.onDemand#` and fzf see. Invalid rules are skipped and reported once. See [query rewrite rules](https://github.com/goodov/fast-quick-open#query-rewrite-rules) for the accepted shapes and examples.",
+          "markdownDescription": "Rewrite typed queries with regular expressions before matching. Useful for stripping copied path prefixes, expanding shortcuts, or mapping repository-specific paths. Rules run in order after `#fastQuickOpen.lowercaseQuery#`. The first matching rule group wins; plain rules still run. Invalid rules are skipped and reported. See [query rewrite rules](https://github.com/goodov/fast-quick-open#query-rewrite-rules).",
           "items": {
             "oneOf": [
               {
@@ -180,25 +180,25 @@
                 "properties": {
                   "find": {
                     "type": "string",
-                    "markdownDescription": "JavaScript regular expression source to search for."
+                    "markdownDescription": "JavaScript regular expression to find in the query."
                   },
                   "replace": {
                     "type": "string",
                     "default": "",
-                    "markdownDescription": "Replacement text. Supports `$1`, `$<name>`, and `$&`."
+                    "markdownDescription": "Text to replace the match with. Supports captured groups such as `$1`, `$<name>`, and the full match `$&`."
                   },
                   "flags": {
                     "type": "string",
                     "default": "",
                     "pattern": "^[dgimsuvy]*$",
-                    "markdownDescription": "Regular expression flags. Omit to replace only the first match; use `g` to replace all."
+                    "markdownDescription": "JavaScript regular-expression flags. Omit this for the first match; use `g` to replace every match."
                   }
                 },
                 "additionalProperties": false
               },
               {
                 "type": "array",
-                "markdownDescription": "A rule group. The first group whose first rule matches the query runs in full; later groups are skipped, but later plain rules still run.",
+                "markdownDescription": "A group of rules. The first matching group runs in full; later groups are skipped. Plain rules outside groups still run.",
                 "items": {
                   "type": "object",
                   "required": [
@@ -207,7 +207,7 @@
                   "properties": {
                     "find": {
                       "type": "string",
-                      "markdownDescription": "JavaScript regular expression source to search for. On the first rule of a group this is also the group's condition."
+                      "markdownDescription": "Regular expression to find. On the first rule, a match also selects this group."
                     },
                     "replace": {
                       "type": "string",
@@ -218,7 +218,7 @@
                       "type": "string",
                       "default": "",
                       "pattern": "^[dgimsuvy]*$",
-                      "markdownDescription": "Regular expression flags. Omit to replace only the first match; use `g` to replace all."
+                      "markdownDescription": "JavaScript regular-expression flags. Use `g` to replace every match."
                     }
                   },
                   "additionalProperties": false
@@ -230,7 +230,7 @@
         },
         "fastQuickOpen.onDemand": {
           "type": "object",
-          "markdownDescription": "Per-key on-demand fd/fzf scopes, built the first time a query starts with the key. Not inherited from top-level `fastQuickOpen.*` settings. See [on-demand scopes](https://github.com/goodov/fast-quick-open#on-demand-scopes).",
+          "markdownDescription": "Create extra search areas with short prefixes, such as `out`, `deps`, or `other_repo`. Their indexes are built the first time you use the prefix, which keeps less-used trees out of the normal index. Each scope has separate roots and filters; omitted search options use the top-level settings. See [on-demand scopes](https://github.com/goodov/fast-quick-open#on-demand-scopes).",
           "default": {},
           "additionalProperties": {
             "type": "object",
@@ -239,65 +239,65 @@
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "description": "Root directory path or path variable."
+                  "description": "Directory to index for this scope."
                 },
-                "markdownDescription": "fd base directories for this scope; defaults to `[\"<key>\"]` when omitted. Same [path variables](https://github.com/goodov/fast-quick-open#path-variables) as `#fastQuickOpen.roots#`, including `${workspaceFolderList}`."
+                "markdownDescription": "Directories searched by this scope. If omitted, the scope key itself is used as a directory under each workspace folder. Supports the same [path variables](https://github.com/goodov/fast-quick-open#path-variables) as `#fastQuickOpen.roots#`, including `${workspaceFolderList}`."
               },
               "include": {
                 "type": "array",
-                "markdownDescription": "Directories to restore when excluded within this scope. Not inherited from `#fastQuickOpen.include#`.",
+                "markdownDescription": "Directories to bring back after an exclude hides them in this scope. This list is not inherited from `#fastQuickOpen.include#`.",
                 "items": {
                   "type": "string",
-                  "description": "Include directory path."
+                  "description": "Directory to include in this scope."
                 }
               },
               "exclude": {
                 "type": "array",
-                "markdownDescription": "[Glob patterns](https://aka.ms/vscode-glob-patterns) excluded for this scope. Not inherited from `#fastQuickOpen.exclude#`.",
+                "markdownDescription": "[Glob patterns](https://aka.ms/vscode-glob-patterns) to leave out of this scope. This list is not inherited from `#fastQuickOpen.exclude#`.",
                 "items": {
                   "type": "string",
-                  "description": "Exclude glob pattern."
+                  "description": "Glob pattern to exclude from this scope."
                 }
               },
               "fdHidden": {
                 "type": "boolean",
-                "markdownDescription": "Overrides `#fastQuickOpen.fdHidden#` for this scope."
+                "markdownDescription": "Choose whether this scope includes hidden files. Falls back to `#fastQuickOpen.fdHidden#` when omitted."
               },
               "fdNoIgnore": {
                 "type": "boolean",
-                "markdownDescription": "Overrides `#fastQuickOpen.fdNoIgnore#` for this scope."
+                "markdownDescription": "Choose whether this scope should disregard `.gitignore` and similar ignore files. Falls back to `#fastQuickOpen.fdNoIgnore#` when omitted."
               },
               "fdPattern": {
                 "type": "string",
-                "markdownDescription": "Overrides `#fastQuickOpen.fdPattern#` for this scope."
+                "markdownDescription": "Fd pattern used to build this scope. Falls back to `#fastQuickOpen.fdPattern#` when omitted."
               },
               "fdFlags": {
                 "type": "array",
                 "items": {
                   "description": "fd command-line argument."
                 },
-                "markdownDescription": "Overrides `#fastQuickOpen.fdFlags#` for this scope. Expands [path variables](https://github.com/goodov/fast-quick-open#path-variables)."
+                "markdownDescription": "Extra fd arguments for this scope. Falls back to `#fastQuickOpen.fdFlags#` when omitted and expands [path variables](https://github.com/goodov/fast-quick-open#path-variables)."
               },
               "fzfFlags": {
                 "type": "array",
                 "items": {
                   "description": "fzf command-line argument."
                 },
-                "markdownDescription": "Overrides `#fastQuickOpen.fzfFlags#` for this scope. Expands [path variables](https://github.com/goodov/fast-quick-open#path-variables)."
+                "markdownDescription": "Extra fzf arguments for this scope. Falls back to `#fastQuickOpen.fzfFlags#` when omitted and expands [path variables](https://github.com/goodov/fast-quick-open#path-variables)."
               },
               "keepKeyInQuery": {
                 "type": "boolean",
-                "description": "Pass the full query (including the scope key) to fzf instead of stripping the key."
+                "description": "Keep the scope prefix in the fzf query instead of removing it. Usually leave this off."
               },
               "maxItems": {
                 "type": "number",
                 "minimum": 1,
                 "maximum": 100,
-                "markdownDescription": "Overrides `#fastQuickOpen.maxItems#` for this scope."
+                "markdownDescription": "Maximum results shown for this scope (1–100). Falls back to `#fastQuickOpen.maxItems#` when omitted."
               },
               "useSearchExclude": {
                 "type": "boolean",
-                "markdownDescription": "Overrides `#fastQuickOpen.useSearchExclude#` for this scope."
+                "markdownDescription": "Choose whether this scope uses `#files.exclude#` and `#search.exclude#`. Falls back to `#fastQuickOpen.useSearchExclude#` when omitted."
               },
               "lifecycle": {
                 "type": "string",
@@ -306,7 +306,7 @@
                   "destroy"
                 ],
                 "default": "destroy",
-                "description": "Whether this scope's fzf instance stays running after the picker closes."
+                "description": "Use `destroy` to release this index when the picker closes, or `active` to keep it ready for the next search."
               }
             },
             "additionalProperties": false
