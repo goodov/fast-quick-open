@@ -1,0 +1,189 @@
+diff --git a/src/options.go b/src/options.go
+index 94e3a7f9..f9a0e869 100644
+--- a/src/options.go
++++ b/src/options.go
+@@ -594,6 +594,7 @@ type Options struct {
+ 	Extended          bool
+ 	Phony             bool
+ 	Inputless         bool
++	Headless          bool
+ 	Case              Case
+ 	Normalize         bool
+ 	Nth               []Range
+@@ -742,6 +743,7 @@ func defaultOptions() *Options {
+ 		Extended:     true,
+ 		Phony:        false,
+ 		Inputless:    false,
++		Headless:     false,
+ 		Case:         CaseSmart,
+ 		Normalize:    true,
+ 		Nth:          make([]Range, 0),
+@@ -2769,6 +2771,10 @@ func parseOptions(index *int, opts *Options, allArgs []string) error {
+ 			opts.Phony = true
+ 		case "--no-input":
+ 			opts.Inputless = true
++		case "--headless":
++			opts.Headless = true
++			opts.BaseTheme = tui.NoColorTheme
++			opts.Theme = tui.NoColorTheme
+ 		case "--tiebreak":
+ 			str, err := nextString("sort criterion required")
+ 			if err != nil {
+diff --git a/src/terminal.go b/src/terminal.go
+index 640f5be8..fdd83d01 100644
+--- a/src/terminal.go
++++ b/src/terminal.go
+@@ -993,6 +993,9 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
+ 	var renderer tui.Renderer
+ 	fullscreen := !opts.Height.auto && (opts.Height.size == 0 || opts.Height.percent && opts.Height.size == 100)
+ 	var err error
++	if opts.Headless {
++		renderer = tui.NewHeadlessRenderer()
++	} else {
+ 	// Reuse ttyin if available to avoid having multiple file descriptors open
+ 	// when you run fzf multiple times in your Go program. Closing it is known to
+ 	// cause problems with 'become' action and invalid terminal state after exit.
+@@ -1026,6 +1029,7 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	}
+ 	if opts.Inputless {
+ 		renderer.HideCursor()
+ 	}
+diff --git a/src/tui/headless.go b/src/tui/headless.go
+new file mode 100644
+index 00000000..20e5dea5
+--- /dev/null
++++ b/src/tui/headless.go
+@@ -0,0 +1,130 @@
++package tui
++
++import "sync"
++
++const (
++	headlessWidth  = 80
++	headlessHeight = 24
++)
++
++// HeadlessRenderer is a no-op Renderer for --listen without a TTY.
++type HeadlessRenderer struct {
++	mu     sync.Mutex
++	cancel chan struct{}
++	closed bool
++}
++
++type HeadlessWindow struct {
++	top    int
++	left   int
++	width  int
++	height int
++	posx   int
++	posy   int
++}
++
++func NewHeadlessRenderer() Renderer {
++	return &HeadlessRenderer{}
++}
++
++func (r *HeadlessRenderer) DefaultTheme() *ColorTheme { return NoColorTheme }
++func (r *HeadlessRenderer) Init() error               { return nil }
++func (r *HeadlessRenderer) Resize(func(int) int)      {}
++func (r *HeadlessRenderer) Pause(bool)                {}
++func (r *HeadlessRenderer) Resume(bool, bool)         {}
++func (r *HeadlessRenderer) Clear()                    {}
++func (r *HeadlessRenderer) RefreshWindows([]Window)   {}
++func (r *HeadlessRenderer) Refresh()                  {}
++func (r *HeadlessRenderer) PassThrough(string)        {}
++func (r *HeadlessRenderer) NeedScrollbarRedraw() bool { return false }
++func (r *HeadlessRenderer) ShouldEmitResizeEvent() bool {
++	return false
++}
++func (r *HeadlessRenderer) Bell()       {}
++func (r *HeadlessRenderer) HideCursor() {}
++func (r *HeadlessRenderer) ShowCursor() {}
++func (r *HeadlessRenderer) Top() int    { return 0 }
++func (r *HeadlessRenderer) MaxX() int   { return headlessWidth }
++func (r *HeadlessRenderer) MaxY() int   { return headlessHeight }
++func (r *HeadlessRenderer) Size() TermSize {
++	return TermSize{Lines: headlessHeight, Columns: headlessWidth}
++}
++
++func (r *HeadlessRenderer) GetChar(cancellable bool) Event {
++	r.mu.Lock()
++	if r.closed {
++		r.mu.Unlock()
++		return Event{Invalid, 0, nil}
++	}
++	if !cancellable {
++		r.mu.Unlock()
++		select {}
++	}
++	ch := make(chan struct{})
++	r.cancel = ch
++	r.mu.Unlock()
++	<-ch
++	return Event{Invalid, 0, nil}
++}
++
++func (r *HeadlessRenderer) CancelGetChar() {
++	r.mu.Lock()
++	if r.cancel != nil {
++		close(r.cancel)
++		r.cancel = nil
++	}
++	r.mu.Unlock()
++}
++
++func (r *HeadlessRenderer) Close() {
++	r.mu.Lock()
++	r.closed = true
++	if r.cancel != nil {
++		close(r.cancel)
++		r.cancel = nil
++	}
++	r.mu.Unlock()
++}
++
++func (r *HeadlessRenderer) NewWindow(top int, left int, width int, height int, windowType WindowType, borderStyle BorderStyle, erase bool) Window {
++	return &HeadlessWindow{top: top, left: left, width: width, height: height}
++}
++
++func (w *HeadlessWindow) Top() int                             { return w.top }
++func (w *HeadlessWindow) Left() int                            { return w.left }
++func (w *HeadlessWindow) Width() int                           { return w.width }
++func (w *HeadlessWindow) Height() int                          { return w.height }
++func (w *HeadlessWindow) DrawBorder()                          {}
++func (w *HeadlessWindow) DrawHBorder()                         {}
++func (w *HeadlessWindow) DrawHSeparator(int, WindowType, bool) {}
++func (w *HeadlessWindow) PaintSectionFrame(int, int, WindowType, SectionEdge) {
++}
++func (w *HeadlessWindow) Refresh()    {}
++func (w *HeadlessWindow) FinishFill() {}
++func (w *HeadlessWindow) X() int      { return w.posx }
++func (w *HeadlessWindow) Y() int      { return w.posy }
++func (w *HeadlessWindow) EncloseX(x int) bool {
++	return x >= w.left && x < w.left+w.width
++}
++func (w *HeadlessWindow) EncloseY(y int) bool {
++	return y >= w.top && y < w.top+w.height
++}
++func (w *HeadlessWindow) Enclose(y int, x int) bool {
++	return w.EncloseX(x) && w.EncloseY(y)
++}
++func (w *HeadlessWindow) Move(y int, x int) {
++	w.posy = y
++	w.posx = x
++}
++func (w *HeadlessWindow) MoveAndClear(y int, x int) { w.Move(y, x) }
++func (w *HeadlessWindow) Print(string)              {}
++func (w *HeadlessWindow) CPrint(ColorPair, string)  {}
++func (w *HeadlessWindow) Fill(string) FillReturn    { return FillSuspend }
++func (w *HeadlessWindow) CFill(Color, Color, Color, Attr, string) FillReturn {
++	return FillSuspend
++}
++func (w *HeadlessWindow) LinkBegin(string, string) {}
++func (w *HeadlessWindow) LinkEnd()                 {}
++func (w *HeadlessWindow) Erase()                   {}
++func (w *HeadlessWindow) EraseMaybe() bool         { return false }
++func (w *HeadlessWindow) SetWrapSign(string, int)  {}

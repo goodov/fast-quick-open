@@ -1,0 +1,3 @@
+- support "Settings", "Extension", etc. pages in recents
+- first quick open in a new file doesn't select the first line
+- show "busy" when a new index slot is preparing (?)

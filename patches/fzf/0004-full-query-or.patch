@@ -1,0 +1,237 @@
+diff --git a/src/pattern.go b/src/pattern.go
+index 8215c41d..a387cf40 100644
+--- a/src/pattern.go
++++ b/src/pattern.go
+@@ -55,6 +55,7 @@ type Pattern struct {
+ 	withPos       bool
+ 	text          []rune
+ 	termSets      []termSet
++	termGroups    []termGroup
+ 	sortable      bool
+ 	cacheable     bool
+ 	cacheKey      string
+@@ -99,9 +100,14 @@ func BuildPattern(cache *ChunkCache, patternCache map[string]*Pattern, fuzzy boo
+ 	caseSensitive := true
+ 	sortable := true
+ 	termSets := []termSet{}
++	termGroups := []termGroup{}
+ 
+ 	if extended {
+-		termSets = parseTerms(fuzzy, caseMode, normalize, asString)
++		termGroups = parseTermGroups(fuzzy, caseMode, normalize, asString)
++		termSets = flattenTermGroups(termGroups)
++		if len(termGroups) > 1 {
++			cacheable = false
++		}
+ 		// We should not sort the result if there are only inverse search terms
+ 		sortable = false
+ 	Loop:
+@@ -142,6 +148,7 @@ func BuildPattern(cache *ChunkCache, patternCache map[string]*Pattern, fuzzy boo
+ 		withPos:       withPos,
+ 		text:          []rune(asString),
+ 		termSets:      termSets,
++		termGroups:    termGroups,
+ 		sortable:      sortable,
+ 		cacheable:     cacheable,
+ 		nth:           nth,
+@@ -268,6 +275,9 @@ func (p *Pattern) buildCacheKey() string {
+ 	if !p.extended {
+ 		return p.AsString()
+ 	}
++	if len(p.termGroups) > 1 {
++		return ""
++	}
+ 	cacheableTerms := []string{}
+ 	for _, termSet := range p.termSets {
+ 		if len(termSet) == 1 && !termSet[0].inv && (p.fuzzy || termSet[0].typ == termExact) {
+@@ -387,6 +397,9 @@ func (p *Pattern) matchChunk(chunk *Chunk, cachedBitmap *ChunkBitmap, slab *util
+ // A zero-value Result (with item == nil) indicates no match.
+ func (p *Pattern) MatchItem(item *Item, withPos bool, slab *util.Slab) (Result, []Offset, *[]int) {
+ 	if p.extended {
++		if len(p.termGroups) > 1 {
++			return p.matchTermGroups(item, withPos, slab)
++		}
+ 		if offsets, bonus, pos := p.extendedMatch(item, withPos, slab); len(offsets) == len(p.termSets) {
+ 			return buildResult(item, offsets, bonus), offsets, pos
+ 		}
+diff --git a/src/query_or.go b/src/query_or.go
+new file mode 100644
+index 00000000..0dae7d86
+--- /dev/null
++++ b/src/query_or.go
+@@ -0,0 +1,51 @@
++package fzf
++
++import (
++	"strings"
++
++	"github.com/junegunn/fzf/src/util"
++)
++
++type termGroup []termSet
++
++func parseTermGroups(fuzzy bool, caseMode Case, normalize bool, str string) []termGroup {
++	protected := strings.ReplaceAll(str, "\\ ", "\t")
++	tokens := _splitRegex.Split(protected, -1)
++	groups := []termGroup{}
++	groupTokens := []string{}
++	appendGroup := func() {
++		sets := parseTerms(fuzzy, caseMode, normalize, strings.Join(groupTokens, " "))
++		if len(sets) > 0 {
++			groups = append(groups, sets)
++		}
++		groupTokens = groupTokens[:0]
++	}
++	for _, token := range tokens {
++		if token == "||" {
++			appendGroup()
++		} else {
++			groupTokens = append(groupTokens, token)
++		}
++	}
++	appendGroup()
++	return groups
++}
++
++func flattenTermGroups(groups []termGroup) []termSet {
++	sets := []termSet{}
++	for _, group := range groups {
++		sets = append(sets, group...)
++	}
++	return sets
++}
++
++func (p *Pattern) matchTermGroups(item *Item, withPos bool, slab *util.Slab) (Result, []Offset, *[]int) {
++	for _, termSets := range p.termGroups {
++		branch := *p
++		branch.termSets = termSets
++		if offsets, bonus, pos := branch.extendedMatch(item, withPos, slab); len(offsets) == len(termSets) {
++			return buildResult(item, offsets, bonus), offsets, pos
++		}
++	}
++	return Result{}, nil, nil
++}
+diff --git a/src/query_or_test.go b/src/query_or_test.go
+new file mode 100644
+index 00000000..df82b4f4
+--- /dev/null
++++ b/src/query_or_test.go
+@@ -0,0 +1,118 @@
++package fzf
++
++import (
++	"testing"
++
++	"github.com/junegunn/fzf/src/algo"
++	"github.com/junegunn/fzf/src/util"
++)
++
++func buildQueryOrPattern(fuzzy bool, query string) *Pattern {
++	return BuildPattern(NewChunkCache(), make(map[string]*Pattern),
++		fuzzy, algo.FuzzyMatchV2, true, CaseSmart, false, true,
++		false, true, []Range{}, Delimiter{}, revision{}, []rune(query), nil, 0)
++}
++
++func TestParseTermGroups(t *testing.T) {
++	groups := parseTermGroups(true, CaseSmart, false, "failed || lock file")
++	if len(groups) != 2 || len(groups[0]) != 1 || len(groups[1]) != 2 ||
++		string(groups[0][0][0].text) != "failed" ||
++		string(groups[1][0][0].text) != "lock" || string(groups[1][1][0].text) != "file" {
++		t.Fatalf("unexpected query groups: %v", groups)
++	}
++
++	groups = parseTermGroups(true, CaseSmart, false, "|| || lock\\ file || || failed|open file ||")
++	if len(groups) != 2 || len(groups[0]) != 1 || len(groups[1]) != 2 ||
++		string(groups[0][0][0].text) != "lock file" ||
++		string(groups[1][0][0].text) != "failed|open" {
++		t.Fatalf("unexpected separators or escaped terms: %v", groups)
++	}
++
++	groups = parseTermGroups(false, CaseSmart, false, "^failed$ || !lock 'file")
++	if len(groups) != 2 || groups[0][0][0].typ != termEqual ||
++		groups[1][0][0].typ != termExact || !groups[1][0][0].inv ||
++		groups[1][1][0].typ != termFuzzy {
++		t.Fatalf("unexpected exact-mode modifiers: %v", groups)
++	}
++
++	if groups := parseTermGroups(true, CaseSmart, false, "|| || ||"); len(groups) != 0 {
++		t.Fatalf("empty branches should be ignored: %v", groups)
++	}
++
++	groups = parseTermGroups(true, CaseSmart, false, "failed | lock file")
++	if len(groups) != 1 || len(groups[0]) != 2 || len(groups[0][0]) != 2 {
++		t.Fatalf("single pipe should retain term-level OR semantics: %v", groups)
++	}
++}
++
++func TestQueryOrMatching(t *testing.T) {
++	matches := func(pattern *Pattern, text string) bool {
++		item := Item{text: util.ToChars([]byte(text))}
++		result, _, _ := pattern.MatchItem(&item, false, slab)
++		return result.item != nil
++	}
++
++	queryOr := buildQueryOrPattern(false, "failed || lock file")
++	for _, text := range []string{"failed", "lock file", "failed lock file"} {
++		if !matches(queryOr, text) {
++			t.Errorf("double pipe should match %q", text)
++		}
++	}
++	for _, text := range []string{"lock", "file", "unrelated"} {
++		if matches(queryOr, text) {
++			t.Errorf("double pipe should not match %q", text)
++		}
++	}
++
++	termOr := buildQueryOrPattern(false, "failed | lock file")
++	for _, text := range []string{"failed file", "lock file", "failed lock file"} {
++		if !matches(termOr, text) {
++			t.Errorf("single pipe should match %q", text)
++		}
++	}
++	for _, text := range []string{"failed", "lock", "file"} {
++		if matches(termOr, text) {
++			t.Errorf("single pipe should not match %q", text)
++		}
++	}
++
++	negated := buildQueryOrPattern(true, "!failed lock || failed")
++	for _, text := range []string{"lock", "failed", "failed lock"} {
++		if !matches(negated, text) {
++			t.Errorf("negated query should match %q", text)
++		}
++	}
++}
++
++func TestQueryOrBranchResults(t *testing.T) {
++	firstBranch := buildQueryOrPattern(true, "^failed || lock file")
++	item := Item{text: util.ToChars([]byte("failed lock file"))}
++	_, offsets, _ := firstBranch.MatchItem(&item, false, slab)
++	if len(offsets) != 1 || offsets[0] != (Offset{0, 6}) {
++		t.Fatalf("expected first branch offsets, got %v", offsets)
++	}
++
++	noPositionLeak := buildQueryOrPattern(true, "^present missing || ^present")
++	item = Item{text: util.ToChars([]byte("present"))}
++	_, offsets, positions := noPositionLeak.MatchItem(&item, true, slab)
++	if len(offsets) != 1 || offsets[0] != (Offset{0, 7}) || positions == nil || len(*positions) != 7 {
++		t.Fatalf("failed branch leaked result positions: offsets=%v positions=%v", offsets, positions)
++	}
++}
++
++func TestQueryOrCacheability(t *testing.T) {
++	multi := buildQueryOrPattern(true, "failed || lock file")
++	if multi.cacheable || multi.CacheKey() != "" || multi.directAlgo != nil {
++		t.Fatal("multi-branch query should bypass caches and direct matching")
++	}
++
++	single := buildQueryOrPattern(true, "failed")
++	if !single.cacheable || single.CacheKey() != "failed" || single.directAlgo == nil {
++		t.Fatal("single-branch query should retain normal fast paths")
++	}
++
++	empty := buildQueryOrPattern(true, "|| ||")
++	if !empty.IsEmpty() {
++		t.Fatal("separator-only query should be empty")
++	}
++}

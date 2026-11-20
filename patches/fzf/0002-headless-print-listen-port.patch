@@ -1,0 +1,15 @@
+diff --git a/src/terminal.go b/src/terminal.go
+index deccbccf..740bbe46 100644
+--- a/src/terminal.go
++++ b/src/terminal.go
+@@ -1390,6 +1390,10 @@ func NewTerminal(opts *Options, eventBox *util.EventBox, executor *util.Executor
+ 		if port > 0 {
+ 			t.listenPort = &port
+ 		}
++		if opts.Headless && port > 0 {
++			fmt.Fprintf(os.Stdout, "{\"port\":%d}\n", port)
++			os.Stdout.Sync()
++		}
+ 	}
+ 
+ 	if t.hasStartActions {

@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+
+permissions:
+  contents: write
+  # Read the release attestation that immutable releases generate on publish.
+  attestations: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.4.0
+
+      - uses: pnpm/action-setup@v4.3.0
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: actions/setup-go@v5.6.0
+        with:
+          go-version: stable
+          cache: false
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Bump version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          npm version "${BUMP}" --no-git-tag-version
+          version="$(node -p "require('./package.json').version")"
+          tag="v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare fzf
+        run: |
+          pnpm run fzf:sync
+          # build-fzf derives the version from `git describe`, which needs tags.
+          git -C fzf fetch --quiet --unshallow --filter=blob:none --tags origin
+          pnpm run fzf:patch
+
+      - run: pnpm run fzf:build
+      - run: pnpm run download-bins
+      # Regenerate so the shipped notices match the Go toolchain used here.
+      - run: pnpm run notices
+
+      - name: Package VSIX
+        id: package
+        env:
+          VSIX: fast-quick-open-${{ steps.version.outputs.version }}.vsix
+        run: |
+          pnpm dlx @vscode/vsce@3 package --no-dependencies --out "${VSIX}"
+          ls -l "${VSIX}"
+          echo "vsix=${VSIX}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: vsix
+          path: ${{ steps.package.outputs.vsix }}
+          if-no-files-found: error
+
+      # Only after a successful build, so a failed run leaves main untouched.
+      - name: Commit, tag and push
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json THIRD_PARTY_NOTICES.md
+          git commit -m "Release ${TAG}"
+          git tag -a "${TAG}" -m "${TAG}"
+          git push --atomic origin HEAD:refs/heads/main "refs/tags/${TAG}"
+
+      # Immutable releases are enabled for this repository: once published, the
+      # tag and assets are locked. Upload everything to a draft first, then
+      # publish it in a single step.
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VSIX: ${{ steps.package.outputs.vsix }}
+        run: |
+          gh release create "${TAG}" "${VSIX}" \
+            --draft \
+            --title "${TAG}" \
+            --generate-notes \
+            --verify-tag
+          gh release edit "${TAG}" --draft=false
+
+      - name: Verify release immutability and attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VSIX: ${{ steps.package.outputs.vsix }}
+        run: |
+          if [ "$(gh release view "${TAG}" --json isImmutable --jq .isImmutable)" != true ]; then
+            echo "::error::Release ${TAG} is not immutable; enable release immutability in the repository settings"
+            exit 1
+          fi
+          # The attestation is generated asynchronously after publishing.
+          for attempt in 1 2 3 4 5 6; do
+            if gh release verify "${TAG}" && gh release verify-asset "${TAG}" "${VSIX}"; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Could not verify the release attestation for ${TAG}"
+          exit 1
